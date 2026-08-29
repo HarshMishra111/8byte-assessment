@@ -1,0 +1,99 @@
+pipeline {
+    agent any
+
+    tools {
+        jdk 'jdk21'
+        maven 'maven'
+    }
+
+    environment {
+        TRIVY = 'C:\\Users\\User\\AppData\\Local\\Microsoft\\WinGet\\Packages\\AquaSecurity.Trivy_Microsoft.Winget.Source_8wekyb3d8bbwe\\trivy.exe'
+    }
+
+    stages {
+
+        stage('Git Checkout') {
+            steps {
+                git branch: 'main',
+                    changelog: false,
+                    poll: false,
+                    url: 'https://github.com/harshmishra111/SpringBoot-WebApplication.git'
+            }
+        }
+
+        stage('Code Compile') {
+            steps {
+                bat 'mvn clean compile'
+            }
+        }
+
+        stage('Run Test Cases') {
+            steps {
+                bat 'mvn test' //unit testing
+            }
+        }
+
+        stage('Maven Build') {
+            steps {
+                bat 'mvn clean package -DskipTests' 
+            }
+        }
+        
+        stage('Manual Approval') {
+    steps {
+        script {
+
+            emailext(
+                subject: "Deployment Approval Required - ${env.JOB_NAME} #${env.BUILD_NUMBER}",
+                body: """
+Hello,
+
+The Jenkins pipeline has completed the build, test, Docker push and security scan successfully.
+
+Deployment approval is required.
+
+Job: ${env.JOB_NAME}
+Build: #${env.BUILD_NUMBER}
+
+Please open Jenkins and approve the deployment.
+
+Regards,
+Jenkins
+""",
+                to: 'harshumishra1112@gmail.com'
+            )
+
+            timeout(time: 30, unit: 'MINUTES') {
+                input message: 'Approve deployment to production?',
+                      ok: 'Approve Deployment'
+            }
+        }
+    }
+}
+
+        stage('Docker Build & Push') {
+            steps {
+                script {
+                    withDockerRegistry(
+                        credentialsId: '81b3c41b-96c3-4a4e-847f-070ca8a8c6b8',
+                        toolName: 'docker'
+                    ) {
+                        bat 'docker build -t webapp .'
+
+                        bat 'docker tag webapp harshmishra111/webapp:latest'
+
+                        bat 'docker push harshmishra111/webapp:latest'
+                    }
+                }
+            }
+        }
+
+        stage('Docker Image Scan') {
+    steps {
+        bat '''
+            "%TRIVY%" image harshmishra111/webapp:latest
+        '''
+    }
+}
+    }
+}
